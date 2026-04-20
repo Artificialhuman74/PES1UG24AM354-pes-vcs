@@ -15,7 +15,21 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/resource.h>
 #include <openssl/evp.h>
+
+// The Index struct (~5.6MB) is declared on the stack in pes.c.
+// Increase the stack limit before main runs so it doesn't overflow.
+__attribute__((constructor))
+static void ensure_large_stack(void) {
+    struct rlimit rl;
+    if (getrlimit(RLIMIT_STACK, &rl) == 0) {
+        if (rl.rlim_cur != RLIM_INFINITY && rl.rlim_cur < 64 * 1024 * 1024) {
+            rl.rlim_cur = 64 * 1024 * 1024;
+            setrlimit(RLIMIT_STACK, &rl);
+        }
+    }
+}
 
 // ─── PROVIDED ────────────────────────────────────────────────────────────────
 
