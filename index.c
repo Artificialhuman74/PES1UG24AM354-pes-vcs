@@ -232,7 +232,26 @@ int index_add(Index *index, const char *path) {
     if (object_write(OBJ_BLOB, buf, nread, &blob_id) != 0) { free(buf); return -1; }
     free(buf);
 
-    // metadata and entry update coming next
-    (void)index;
-    return -1;
+    // Capture mtime and size for fast dirty detection
+    struct stat st;
+    if (lstat(path, &st) != 0) return -1;
+    uint32_t mode = (st.st_mode & S_IXUSR) ? 0100755 : 0100644;
+
+    // Update existing entry or append a new one
+    IndexEntry *existing = index_find(index, path);
+    if (existing) {
+        existing->hash     = blob_id;
+        existing->mode     = mode;
+        existing->mtime_sec = (uint64_t)st.st_mtime;
+        existing->size     = (uint32_t)st.st_size;
+    } else {
+        if (index->count >= MAX_INDEX_ENTRIES) return -1;
+        IndexEntry *e = &index->entries[index->count++];
+        e->hash      = blob_id;
+        e->mode      = mode;
+        e->mtime_sec = (uint64_t)st.st_mtime;
+        e->size      = (uint32_t)st.st_size;
+        snprintf(e->path, sizeof(e->path), "%s", path);
+    }
+    return index_save(index);
 }
