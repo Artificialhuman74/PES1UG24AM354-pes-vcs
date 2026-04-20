@@ -172,12 +172,25 @@ static int write_tree_recursive(const IndexEntry *entries, int count,
             while (j < count && strncmp(entries[j].path, subprefix, strlen(subprefix)) == 0)
                 j++;
             i = j;
-            // recursive call and tree entry coming next
+
+            // Recursively build the subtree, then add as a dir entry
+            ObjectID subtree_id;
+            if (write_tree_recursive(entries, count, subprefix, &subtree_id) != 0)
+                return -1;
+
+            TreeEntry *te = &tree.entries[tree.count++];
+            te->mode = MODE_DIR;
+            te->hash = subtree_id;
+            snprintf(te->name, sizeof(te->name), "%s", dir_name);
         }
     }
 
-    (void)id_out;
-    return -1; // serialization coming next
+    void *data;
+    size_t data_len;
+    if (tree_serialize(&tree, &data, &data_len) != 0) return -1;
+    int rc = object_write(OBJ_TREE, data, data_len, id_out);
+    free(data);
+    return rc;
 }
 
 int tree_from_index(ObjectID *id_out) {
