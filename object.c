@@ -124,8 +124,22 @@ int object_write(ObjectType type, const void *data, size_t len, ObjectID *id_out
 
     // Compute SHA-256 of full object
     compute_hash(full, total, id_out);
+
+    // Deduplication: if object already exists, no need to write again
+    if (object_exists(id_out)) {
+        free(full);
+        return 0;
+    }
+
+    // Build shard dir path and create it (.pes/objects/XX/)
+    char hex[HASH_HEX_SIZE + 1];
+    hash_to_hex(id_out, hex);
+    char shard_dir[512];
+    snprintf(shard_dir, sizeof(shard_dir), "%s/%.2s", OBJECTS_DIR, hex);
+    mkdir(shard_dir, 0755);
+
     free(full);
-    return -1; // write not yet implemented
+    return -1; // atomic write not yet implemented
 }
 
 // Read an object from the store.
