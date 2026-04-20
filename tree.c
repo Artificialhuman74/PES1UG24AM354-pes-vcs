@@ -157,7 +157,22 @@ static int write_tree_recursive(const IndexEntry *entries, int count,
             snprintf(te->name, sizeof(te->name), "%s", rel);
             i++;
         } else {
-            i++; // subdirectory handling coming next
+            // Subdirectory: extract name and build subprefix
+            size_t dir_name_len = (size_t)(slash - rel);
+            char dir_name[256];
+            if (dir_name_len >= sizeof(dir_name)) return -1;
+            memcpy(dir_name, rel, dir_name_len);
+            dir_name[dir_name_len] = '\0';
+
+            char subprefix[512];
+            snprintf(subprefix, sizeof(subprefix), "%s%s/", prefix, dir_name);
+
+            // Skip past all entries that belong to this subdir
+            int j = i;
+            while (j < count && strncmp(entries[j].path, subprefix, strlen(subprefix)) == 0)
+                j++;
+            i = j;
+            // recursive call and tree entry coming next
         }
     }
 
