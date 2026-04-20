@@ -210,6 +210,16 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     snprintf(c.author, sizeof(c.author), "%s", pes_author());
     c.timestamp = (uint64_t)time(NULL);
 
-    (void)message; (void)commit_id_out;
-    return -1;
+    // Step 4: serialise and write commit object
+    snprintf(c.message, sizeof(c.message), "%s", message);
+
+    void *data;
+    size_t data_len;
+    if (commit_serialize(&c, &data, &data_len) != 0) return -1;
+
+    int rc = object_write(OBJ_COMMIT, data, data_len, commit_id_out);
+    free(data);
+    if (rc != 0) return -1;
+
+    return -1; // HEAD update coming next
 }
