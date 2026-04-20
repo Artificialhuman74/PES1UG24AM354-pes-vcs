@@ -194,8 +194,15 @@ int head_update(const ObjectID *new_commit) {
 //
 // Returns 0 on success, -1 on error.
 int commit_create(const char *message, ObjectID *commit_id_out) {
-    // TODO: Implement commit creation
-    // (See Lab Appendix for logical steps)
+    Commit c;
+    memset(&c, 0, sizeof(c));
+
+    // Step 1: build root tree from the staged index
+    if (tree_from_index(&c.tree) != 0) {
+        fprintf(stderr, "error: failed to build tree from index\n");
+        return -1;
+    }
+
     (void)message; (void)commit_id_out;
-    return -1;
+    return -1; // remaining steps coming
 }
