@@ -600,3 +600,94 @@ The following questions cover filesystem concepts beyond the implementation scop
 - **Git Internals** (Pro Git book): https://git-scm.com/book/en/v2/Git-Internals-Plumbing-and-Porcelain
 - **Git from the inside out**: https://codewords.recurse.com/issues/two/git-from-the-inside-out
 - **The Git Parable**: https://tom.preston-werner.com/2009/05/19/the-git-parable.html
+
+---
+
+## Analysis Answers
+
+### Phase 5: Branching and Checkout
+
+**A5.1: Implementing `pes checkout <branch>`**
+
+Files that must change in `.pes/`:
+- **`.pes/HEAD`** — updated to `ref: refs/heads/<branch>` (or the commit hash directly if detaching).
+- **`.pes/refs/heads/<branch>`** — must already exist (for switching) or be created pointing to the current commit (for creating a new branch).
+
+Working directory changes required:
+1. Read the target branch's tip commit, walk it to get its root tree.
+2. Read the current HEAD's root tree.
+3. Diff the two trees to find: files to add (present in target, absent in current), files to remove (present in current, absent in target), and files to update (different blob hashes).
+4. Write/delete/overwrite files in the working directory accordingly.
+5. Update the index to reflect the target tree.
+
+What makes it complex:
+- Detecting and refusing to overwrite uncommitted local changes (dirty check).
+- Handling subdirectories recursively (nested trees).
+- Atomicity — if checkout fails halfway, the working directory is in a mixed state.
+- Handling untracked files that would be overwritten by the target branch.
+
+---
+
+**A5.2: Detecting dirty working directory conflicts**
+
+To detect a conflict when switching branches without re-hashing every file:
+
+1. For each file tracked in the current index, compare metadata (mtime, size) between the index entry and the actual file on disk. If they differ, the file is **locally modified** (dirty).
+2. Look up the same path in the *target branch's tree* (retrieved from the target commit's root tree). If the target tree has a different blob hash for that path than the current index entry, the file **differs between branches**.
+3. If both conditions are true for the same file, checkout must refuse — overwriting the file would lose the user's local edit.
+
+If only (2) is true (file matches index, but differs across branches), the file can safely be updated. If only (1) is true (locally modified, but same content in both branches), there's no conflict — the file can stay as-is or be warned about but not blocked.
+
+This approach uses only the index (for the local-modification check) and the object store (to read the target tree), with no full file re-hashing required.
+
+---
+
+**A5.3: Commits in detached HEAD state**
+
+When HEAD contains a raw commit hash instead of `ref: refs/heads/<branch>`, new commits still get created normally — `head_update` writes the new hash directly into `HEAD`. A chain of commits accumulates, but **no branch ref points to them**.
+
+If the user then checks out a branch, HEAD switches back to a branch reference. The detached commits are now orphaned — reachable only if the user recorded the commit hash manually.
+
+Recovery options:
+- **If the hash is known**: `pes checkout <hash>` to re-enter detached state, then create a new branch at that point: write the hash into `.pes/refs/heads/<new-branch>` and update HEAD.
+- **Via the reflog** (Git has one; PES-VCS doesn't, but could): a log of every HEAD update would let you find the lost commit hash.
+- **Via GC grace period**: Git's garbage collector won't delete unreachable objects for at least 2 weeks, giving time to recover.
+
+---
+
+### Phase 6: Garbage Collection
+
+**A6.1: Finding and deleting unreachable objects**
+
+Algorithm (mark-and-sweep):
+
+1. **Mark phase** — collect all reachable object hashes:
+   - Start from every branch tip in `.pes/refs/heads/` and HEAD (if detached).
+   - For each commit: add the commit hash, recurse into its tree, add every tree and blob hash transitively.
+   - Use a **hash set** (e.g., a hash table keyed on the 32-byte SHA-256) to record reachable hashes. Membership test is O(1).
+
+2. **Sweep phase**:
+   - Walk every file under `.pes/objects/` (reconstructing hashes from the 2-char shard dir + filename).
+   - Delete any object whose hash is not in the reachable set.
+
+Estimate for 100,000 commits and 50 branches:
+- Each commit points to a tree; each tree may point to ~10–100 blobs/subtrees on average.
+- Assume average 50 objects per commit (1 commit + 5 trees + 44 blobs).
+- Total reachable objects ≈ 100,000 × 50 = 5,000,000 objects to visit in the mark phase.
+- The hash set holds up to 5M entries × ~40 bytes each ≈ 200 MB of memory.
+
+---
+
+**A6.2: GC race condition with concurrent commits**
+
+Race condition scenario:
+
+1. A commit operation writes a new blob object B to the object store but has not yet written the tree T that references it.
+2. GC runs its mark phase at this exact moment. It walks all reachable commits and trees — B is not yet referenced by any tree, so it is **not marked as reachable**.
+3. GC's sweep phase deletes B.
+4. The commit operation now writes tree T, which references B — but B no longer exists. The repository is now corrupt.
+
+How Git avoids this:
+- **Grace period**: Git's GC won't delete objects created in the last 2 weeks (configurable via `gc.pruneExpire`), because a recent object is likely part of an in-progress operation.
+- **Lock files**: Git uses lock files (`.lock`) during pack operations so GC can detect and skip concurrent writes.
+- **Write ordering**: Git always writes objects *before* writing any reference to them. A reachable object is always written before it can be reached. GC therefore only needs to exclude objects newer than a grace-period timestamp rather than locking the entire object store.
