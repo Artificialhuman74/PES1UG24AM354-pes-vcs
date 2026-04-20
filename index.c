@@ -216,8 +216,23 @@ int index_save(const Index *index) {
 //
 // Returns 0 on success, -1 on error.
 int index_add(Index *index, const char *path) {
-    // TODO: Implement file staging
-    // (See Lab Appendix for logical steps)
-    (void)index; (void)path;
+    // Read file contents into a heap buffer
+    FILE *f = fopen(path, "rb");
+    if (!f) { fprintf(stderr, "error: cannot open '%s'\n", path); return -1; }
+    fseek(f, 0, SEEK_END);
+    long fsz = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    void *buf = malloc(fsz > 0 ? fsz : 1);
+    if (!buf) { fclose(f); return -1; }
+    size_t nread = fread(buf, 1, fsz, f);
+    fclose(f);
+
+    // Store contents as a blob object and get its hash
+    ObjectID blob_id;
+    if (object_write(OBJ_BLOB, buf, nread, &blob_id) != 0) { free(buf); return -1; }
+    free(buf);
+
+    // metadata and entry update coming next
+    (void)index;
     return -1;
 }
