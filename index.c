@@ -143,8 +143,27 @@ int index_load(Index *index) {
     index->count = 0;
     FILE *f = fopen(INDEX_FILE, "r");
     if (!f) return 0; // no index yet — empty is valid for a fresh repo
+
+    char hex[HASH_HEX_SIZE + 1];
+    uint32_t mode;
+    uint64_t mtime;
+    uint32_t size;
+    char path[512];
+
+    while (index->count < MAX_INDEX_ENTRIES) {
+        int n = fscanf(f, "%o %64s %" SCNu64 " %" SCNu32 " %511s",
+                       &mode, hex, &mtime, &size, path);
+        if (n == EOF || n < 5) break;
+        IndexEntry *e = &index->entries[index->count];
+        e->mode = mode;
+        if (hex_to_hash(hex, &e->hash) != 0) { fclose(f); return -1; }
+        e->mtime_sec = mtime;
+        e->size = size;
+        snprintf(e->path, sizeof(e->path), "%s", path);
+        index->count++;
+    }
     fclose(f);
-    return 0; // parsing coming next
+    return 0;
 }
 
 // Save the index to .pes/index atomically.
