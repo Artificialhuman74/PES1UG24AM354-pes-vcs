@@ -194,6 +194,7 @@ static int write_tree_recursive(const IndexEntry *entries, int count,
 }
 
 int tree_from_index(ObjectID *id_out) {
-    (void)id_out;
-    return -1;
+    Index index;
+    if (index_load(&index) != 0) return -1;
+    return write_tree_recursive(index.entries, index.count, "", id_out);
 }
