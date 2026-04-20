@@ -203,6 +203,9 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
         return -1;
     }
 
+    // Step 2: read current HEAD as parent (fails gracefully for first commit)
+    c.has_parent = (head_read(&c.parent) == 0) ? 1 : 0;
+
     (void)message; (void)commit_id_out;
-    return -1; // remaining steps coming
+    return -1;
 }
