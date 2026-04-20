@@ -206,6 +206,10 @@ int commit_create(const char *message, ObjectID *commit_id_out) {
     // Step 2: read current HEAD as parent (fails gracefully for first commit)
     c.has_parent = (head_read(&c.parent) == 0) ? 1 : 0;
 
+    // Step 3: set author and timestamp
+    snprintf(c.author, sizeof(c.author), "%s", pes_author());
+    c.timestamp = (uint64_t)time(NULL);
+
     (void)message; (void)commit_id_out;
     return -1;
 }
